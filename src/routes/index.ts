@@ -62,4 +62,6 @@ export const miscRoutes = (
         }
         return c.text("Invalid proxy", 400);
     });
+
+    app.get("/", (c) => c.text("Invidious Companion Running"));
 };
