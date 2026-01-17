@@ -36,7 +36,7 @@ if (Deno.env.get("GET_FETCH_CLIENT_LOCATION")) {
 const { getFetchClient } = await import(getFetchClientLocation);
 
 declare module "hono" {
-    interface ContextVariableMap extends HonoVariables {}
+    interface ContextVariableMap extends HonoVariables { }
 }
 
 const app = new Hono({
@@ -73,88 +73,92 @@ if (!innertubeClientOauthEnabled) {
 
 Platform.shim.eval = jsInterpreter;
 
-innertubeClient = await Innertube.create({
-    enable_session_cache: false,
-    retrieve_player: innertubeClientFetchPlayer,
-    fetch: getFetchClient(config),
-    cookie: innertubeClientCookies || undefined,
-    user_agent: USER_AGENT,
-    player_id: PLAYER_ID,
-});
+try {
+    innertubeClient = await Innertube.create({
+        enable_session_cache: false,
+        retrieve_player: innertubeClientFetchPlayer,
+        fetch: getFetchClient(config),
+        cookie: innertubeClientCookies || undefined,
+        user_agent: USER_AGENT,
+        player_id: PLAYER_ID,
+    });
 
-if (!innertubeClientOauthEnabled) {
-    if (innertubeClientJobPoTokenEnabled) {
-        // Initialize tokenMinter in background to not block server startup
-        console.log("[INFO] Starting PO token generation in background...");
-        retry(
-            poTokenGenerate.bind(
-                poTokenGenerate,
-                config,
-                metrics,
-            ),
-            { minTimeout: 1_000, maxTimeout: 60_000, multiplier: 5, jitter: 0 },
-        ).then((result) => {
-            innertubeClient = result.innertubeClient;
-            tokenMinter = result.tokenMinter;
+    if (!innertubeClientOauthEnabled) {
+        if (innertubeClientJobPoTokenEnabled) {
+            // Initialize tokenMinter in background to not block server startup
+            console.log("[INFO] Starting PO token generation in background...");
+            retry(
+                poTokenGenerate.bind(
+                    poTokenGenerate,
+                    config,
+                    metrics,
+                ),
+                { minTimeout: 1_000, maxTimeout: 60_000, multiplier: 5, jitter: 0 },
+            ).then((result) => {
+                innertubeClient = result.innertubeClient;
+                tokenMinter = result.tokenMinter;
+                tokenMinterReadyResolve?.();
+            }).catch((err) => {
+                console.error("[ERROR] Failed to initialize PO token:", err);
+                metrics?.potokenGenerationFailure.inc();
+                tokenMinterReadyResolve?.();
+            });
+        } else {
+            // If PO token is not enabled, resolve immediately
             tokenMinterReadyResolve?.();
-        }).catch((err) => {
-            console.error("[ERROR] Failed to initialize PO token:", err);
-            metrics?.potokenGenerationFailure.inc();
-            tokenMinterReadyResolve?.();
+        }
+        Deno.cron(
+            "regenerate youtube session",
+            config.jobs.youtube_session.frequency,
+            { backoffSchedule: [5_000, 15_000, 60_000, 180_000] },
+            async () => {
+                if (innertubeClientJobPoTokenEnabled) {
+                    try {
+                        ({ innertubeClient, tokenMinter } = await poTokenGenerate(
+                            config,
+                            metrics,
+                        ));
+                    } catch (err) {
+                        metrics?.potokenGenerationFailure.inc();
+                        throw err;
+                    }
+                } else {
+                    innertubeClient = await Innertube.create({
+                        enable_session_cache: false,
+                        fetch: getFetchClient(config),
+                        retrieve_player: innertubeClientFetchPlayer,
+                        user_agent: USER_AGENT,
+                        cookie: innertubeClientCookies || undefined,
+                        player_id: PLAYER_ID,
+                    });
+                }
+            },
+        );
+    } else if (innertubeClientOauthEnabled) {
+        // Fired when waiting for the user to authorize the sign in attempt.
+        innertubeClient.session.on("auth-pending", (data) => {
+            console.log(
+                `[INFO] [OAUTH] Go to ${data.verification_url} in your browser and enter code ${data.user_code} to authenticate.`,
+            );
         });
-    } else {
-        // If PO token is not enabled, resolve immediately
+        // Fired when authentication is successful.
+        innertubeClient.session.on("auth", () => {
+            console.log("[INFO] [OAUTH] Sign in successful!");
+        });
+        // Fired when the access token expires.
+        innertubeClient.session.on("update-credentials", async () => {
+            console.log("[INFO] [OAUTH] Credentials updated.");
+            await innertubeClient.session.oauth.cacheCredentials();
+        });
+
+        // Attempt to sign in and then cache the credentials
+        await innertubeClient.session.signIn();
+        await innertubeClient.session.oauth.cacheCredentials();
+        // Resolve promise for tests
         tokenMinterReadyResolve?.();
     }
-    Deno.cron(
-        "regenerate youtube session",
-        config.jobs.youtube_session.frequency,
-        { backoffSchedule: [5_000, 15_000, 60_000, 180_000] },
-        async () => {
-            if (innertubeClientJobPoTokenEnabled) {
-                try {
-                    ({ innertubeClient, tokenMinter } = await poTokenGenerate(
-                        config,
-                        metrics,
-                    ));
-                } catch (err) {
-                    metrics?.potokenGenerationFailure.inc();
-                    throw err;
-                }
-            } else {
-                innertubeClient = await Innertube.create({
-                    enable_session_cache: false,
-                    fetch: getFetchClient(config),
-                    retrieve_player: innertubeClientFetchPlayer,
-                    user_agent: USER_AGENT,
-                    cookie: innertubeClientCookies || undefined,
-                    player_id: PLAYER_ID,
-                });
-            }
-        },
-    );
-} else if (innertubeClientOauthEnabled) {
-    // Fired when waiting for the user to authorize the sign in attempt.
-    innertubeClient.session.on("auth-pending", (data) => {
-        console.log(
-            `[INFO] [OAUTH] Go to ${data.verification_url} in your browser and enter code ${data.user_code} to authenticate.`,
-        );
-    });
-    // Fired when authentication is successful.
-    innertubeClient.session.on("auth", () => {
-        console.log("[INFO] [OAUTH] Sign in successful!");
-    });
-    // Fired when the access token expires.
-    innertubeClient.session.on("update-credentials", async () => {
-        console.log("[INFO] [OAUTH] Credentials updated.");
-        await innertubeClient.session.oauth.cacheCredentials();
-    });
-
-    // Attempt to sign in and then cache the credentials
-    await innertubeClient.session.signIn();
-    await innertubeClient.session.oauth.cacheCredentials();
-    // Resolve promise for tests
-    tokenMinterReadyResolve?.();
+} catch (err) {
+    console.error("[CRITICAL] Failed to initialize Innertube client or PO token system. Server will start but YouTube routes may fail.", err);
 }
 
 companionApp.use("*", async (c, next) => {
