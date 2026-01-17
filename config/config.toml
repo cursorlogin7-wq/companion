@@ -9,14 +9,14 @@
 # See https://toml.io/en/ for details on the configuration format.
 #####
 
-[server]
- port = 8000 # env variable: PORT
- host = "0.0.0.0" # env variable: HOST
+# [server]
+# port = 8282 # env variable: PORT
+# host = "0.0.0.0" # env variable: HOST
 # # Listens to a unix socket on instead of a TCP socket
 # use_unix_socket = false # env variable: SERVER_USE_UNIX_SOCKET
 # unix_socket_path = "/tmp/invidious-companion.sock" # env variable: SERVER_UNIX_SOCKET_PATH
 # # Base path Invidious companion will serve from
-# base_path = "/" # env variable: SERVER_BASE_PATH
+# base_path = "/companion" # env variable: SERVER_BASE_PATH
 # # secret key needs to be exactly 16 characters long
 # secret_key = "CHANGE_ME" # env variable: SERVER_SECRET_KEY
 # verify_requests = false # env variable: SERVER_VERIFY_REQUESTS
@@ -31,7 +31,7 @@
  
 [networking]
 ## Proxy type supported: https://docs.deno.com/api/deno/~/Deno.Proxy
-proxy = "socks5://37.120.162.180:53613" # env variable: PROXY
+proxy = "socks5://195.35.113.29:1080" # env variable: PROXY
 # # IPv6 rotation settings - allows sending requests with unique IPv6 addresses
 # # This requires IPv6 setup: https://github.com/iv-org/invidious-companion/wiki/How-to-send-IPv6-requests-with-a-new-IPv6-address-for-each-request-on-a-server-with-a-whole-IPv6-range
 # # Randomizes all bits after the block prefix (e.g., /32 randomizes bits 33-128)
