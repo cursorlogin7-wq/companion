@@ -10,8 +10,8 @@
 #####
 
 [server]
- port = 8080 # env variable: PORT
- host = "127.0.0.1" # env variable: HOST
+ port = 8000 # env variable: PORT
+ host = "0.0.0.0" # env variable: HOST
 # # Listens to a unix socket on instead of a TCP socket
 # use_unix_socket = false # env variable: SERVER_USE_UNIX_SOCKET
 # unix_socket_path = "/tmp/invidious-companion.sock" # env variable: SERVER_UNIX_SOCKET_PATH
