@@ -124,19 +124,21 @@ RUN --mount=type=bind,rw,source=.git,target=/app/.git \
     --mount=type=cache,target="${DENO_DIR}" \
     deno task compile
 
-FROM gcr.io/distroless/cc AS app
+FROM ubuntu:22.04 AS app
 
-# Copy group file for the non-privileged user from the user-stage
-COPY --from=user-stage /etc/group /etc/group
+# Install necessary runtime dependencies
+RUN apt-get update && \
+    apt-get install -y ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy passwd file for the non-privileged user from the user-stage
-COPY --from=user-stage /etc/passwd /etc/passwd
+# Create non-privileged user
+RUN useradd -u 10001 -M -s /bin/false appuser
 
 COPY --from=thc-bin /thc /thc
 COPY --from=tini-bin /tini /tini
 
 # Copy cache directory and set correct permissions
-COPY --from=builder --chown=appuser:nogroup /var/tmp/youtubei.js /var/tmp/youtubei.js
+COPY --from=builder --chown=appuser:appuser /var/tmp/youtubei.js /var/tmp/youtubei.js
 
 # Set the working directory
 WORKDIR /app
@@ -145,8 +147,9 @@ COPY --from=builder /app/invidious_companion ./
 
 ARG HOST PORT THC_VERSION THC_PORT_NAME TINI_VERSION
 EXPOSE "${PORT}/tcp"
+EXPOSE 8080
 
-ENV SERVER_BASE_PATH=/ \
+ENV SERVER_BASE_PATH=/companion \
     HOST="${HOST}" \
     PORT="${PORT}" \
     THC_PORT_NAME="${THC_PORT_NAME}" \
