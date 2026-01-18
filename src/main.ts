@@ -110,17 +110,19 @@ if (!innertubeClientOauthEnabled) {
     tokenMinterReadyResolve?.();
 }
 
-const regenerateSession = async () => {
+const regenerateSession = async (): Promise<boolean> => {
     if (innertubeClientJobPoTokenEnabled) {
         try {
             ({ innertubeClient, tokenMinter } = await poTokenGenerate(
                 config,
                 metrics,
             ));
+            return true;
         } catch (err) {
             metrics?.potokenGenerationFailure.inc();
             // Don't rethrow for cron/manual trigger to avoid crashing the server loop
             console.error("[ERROR] Failed to regenerate session:", err);
+            return false;
         }
     } else {
         innertubeClient = await Innertube.create({
@@ -131,6 +133,7 @@ const regenerateSession = async () => {
             cookie: innertubeClientCookies || undefined,
             player_id: PLAYER_ID,
         });
+        return true;
     }
 };
 
