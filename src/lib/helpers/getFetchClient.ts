@@ -20,9 +20,19 @@ export const getFetchClient = (config: Config): {
         init?: RequestInit,
     ) => {
         try {
-            return await performFetch(config, input, init);
+            const response = await performFetch(config, input, init);
+            if (!response.ok && (response.status === 403 || response.status === 429)) {
+                throw new Error(`HTTP Error ${response.status}`);
+            }
+            return response;
         } catch (error) {
             console.error("[Fetch] Request failed. Checking for proxy rotation...", error);
+
+            // Report current proxy as bad if it was used
+            if (config.networking.proxy) {
+                ProxyManager.getInstance().reportBadProxy(config.networking.proxy);
+            }
+
             const newProxy = await ProxyManager.getInstance().getNextWorkingProxy();
 
             if (newProxy && newProxy !== config.networking.proxy) {

@@ -102,7 +102,7 @@ export class ProxyManager {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-            const response = await fetch("http://www.google.com/gen_204", {
+            const response = await fetch("https://www.youtube.com", {
                 client,
                 signal: controller.signal
             });
@@ -133,5 +133,13 @@ export class ProxyManager {
         // Simple randomization to distribute load if we have multiple
         const randomProxy = workingProxies[Math.floor(Math.random() * workingProxies.length)];
         return randomProxy.url;
+    }
+    public reportBadProxy(url: string) {
+        const proxy = this.proxies.find(p => p.url === url);
+        if (proxy) {
+            console.warn(`[ProxyManager] Marking proxy as bad: ${url}`);
+            proxy.working = false;
+            proxy.lastChecked = Date.now(); // Reset check time so it gets re-checked eventually
+        }
     }
 }
