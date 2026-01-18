@@ -13,6 +13,7 @@ const config = await parseConfig();
 import { Metrics } from "./lib/helpers/metrics.ts";
 import { PLAYER_ID } from "./constants.ts";
 import { jsInterpreter } from "./lib/helpers/jsInterpreter.ts";
+import { ProxyManager } from "./lib/helpers/proxyManager.ts";
 
 const args = parseArgs(Deno.args);
 
@@ -72,6 +73,8 @@ if (!innertubeClientOauthEnabled) {
 }
 
 Platform.shim.eval = jsInterpreter;
+
+await ProxyManager.getInstance().init();
 
 innertubeClient = await Innertube.create({
     enable_session_cache: false,
