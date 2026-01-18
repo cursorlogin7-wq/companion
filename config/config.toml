@@ -37,9 +37,9 @@ proxy = "socks5://139.59.24.173:1080" # env variable: PROXY
 # # Randomizes all bits after the block prefix (e.g., /32 randomizes bits 33-128)
 # #ipv6_block = "2001:db8::/32" # env variable: NETWORKING_IPV6_BLOCK
 
-[networking.videoplayback]
+#[networking.videoplayback]
 # # Enable YouTube new video format UMP
- ump = true # env variable: NETWORKING_VIDEOPLAYBACK_UMP
+ #ump = false # env variable: NETWORKING_VIDEOPLAYBACK_UMP
 # # size of chunks to request from google servers for rate limiting reductions
 # video_fetch_chunk_size_mb = 5 # env variable: NETWORKING_VIDEOPLAYBACK_VIDEO_FETCH_CHUNK_SIZE_MB
  
