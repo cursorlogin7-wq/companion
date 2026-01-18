@@ -46,7 +46,7 @@ export const companionRoutes = (
 export const miscRoutes = (
     app: Hono,
     config: Config,
-    regenerateSession?: () => Promise<void>,
+    regenerateSession?: () => Promise<boolean>,
 ) => {
     app.route("/healthz", health);
     if (config.server.enable_metrics) {
@@ -62,7 +62,11 @@ export const miscRoutes = (
 
             if (regenerateSession) {
                 console.log("[INFO] Triggering session regeneration...");
-                await regenerateSession();
+                const success = await regenerateSession();
+                const statusMessage = success
+                    ? "Session regeneration successful"
+                    : "Session regeneration failed";
+                return c.text(`Proxy updated to: ${proxy}. ${statusMessage}`);
             }
 
             return c.text(`Proxy updated to: ${proxy}`);
