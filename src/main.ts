@@ -142,7 +142,9 @@ if (!innertubeClientOauthEnabled) {
         "regenerate youtube session",
         config.jobs.youtube_session.frequency,
         { backoffSchedule: [5_000, 15_000, 60_000, 180_000] },
-        regenerateSession,
+        async () => {
+            await regenerateSession();
+        },
     );
 }
 
