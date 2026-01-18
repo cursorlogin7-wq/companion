@@ -77,7 +77,7 @@ async function performFetch(
 
     return fetchShim(config, input, init);
 }
-};
+
 
 function fetchShim(
     config: Config,
