@@ -67,12 +67,12 @@ export class ProxyManager {
     }
 
     private startBackgroundCheck() {
-        // Initial check of a small batch to get started quickly
-        this.checkBatch(20);
+        this.scheduleNextBatch();
+    }
 
-        setInterval(() => {
-            this.checkBatch(50);
-        }, this.CHECK_INTERVAL);
+    private async scheduleNextBatch() {
+        await this.checkBatch(50);
+        setTimeout(() => this.scheduleNextBatch(), 5000);
     }
 
     private async checkBatch(size: number) {
