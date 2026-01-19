@@ -1,145 +1,351 @@
-import { Config } from "./config.ts";
+/**
+ * Automatic Proxy Manager
+ * Fetches free proxies from antpeak.com API and auto-rotates when they fail.
+ * Tests proxies against YouTube to ensure they work for the application's needs.
+ */
 
-interface Proxy {
-    url: string;
-    protocol: "http" | "socks5";
-    lastChecked: number;
-    working: boolean;
+// --- Configuration ---
+const API_BASE = "https://antpeak.com";
+const USER_AGENT =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const APP_VERSION = "3.7.8";
+const YOUTUBE_TEST_URL = "https://www.youtube.com/";
+
+// --- Types ---
+interface DeviceInfo {
+    udid: string;
+    appVersion: string;
+    platform: string;
+    platformVersion: string;
+    timeZone: string;
+    deviceName: string;
 }
 
-export class ProxyManager {
-    private static instance: ProxyManager;
-    private proxies: Proxy[] = [];
-    private currentProxyIndex = -1;
-    private isInitialized = false;
+interface Location {
+    id: string;
+    region: string;
+    name: string;
+    countryCode: string;
+    type: number;
+    proxyType: number;
+}
 
-    private readonly HTTP_PROXY_LIST_URL = "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/http.txt";
-    private readonly SOCKS5_PROXY_LIST_URL = "https://raw.githubusercontent.com/TheSpeedX/SOCKS-List/master/socks5.txt";
-    private readonly CHECK_INTERVAL = 300_000; // 5 minutes
+interface ProxyServer {
+    addresses: string[];
+    protocol: string;
+    port: number;
+    username?: string;
+    password?: string;
+}
 
-    private constructor() { }
+// --- Singleton State ---
+let currentProxyUrl: string | null = null;
+let accessToken: string | null = null;
+let freeLocations: Location[] = [];
+let isInitialized = false;
+let initializationPromise: Promise<void> | null = null;
 
-    public static getInstance(): ProxyManager {
-        if (!ProxyManager.instance) {
-            ProxyManager.instance = new ProxyManager();
-        }
-        return ProxyManager.instance;
+// --- Helpers ---
+
+async function fetchJson(
+    endpoint: string,
+    method: string,
+    body?: unknown,
+    token?: string,
+): Promise<unknown> {
+    const url = `${API_BASE}${endpoint}`;
+    const headers: Record<string, string> = {
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    };
+
+    if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
     }
 
-    public async init() {
-        if (this.isInitialized) return;
+    const response = await fetch(url, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+    });
 
-        console.log("[ProxyManager] Initializing...");
-        await this.fetchProxies();
-        this.startBackgroundCheck();
-        this.isInitialized = true;
-    }
-
-    private async fetchProxies() {
-        try {
-            console.log("[ProxyManager] Fetching proxy lists...");
-
-            const [httpProxies, socks5Proxies] = await Promise.all([
-                this.fetchList(this.HTTP_PROXY_LIST_URL, "http"),
-                this.fetchList(this.SOCKS5_PROXY_LIST_URL, "socks5")
-            ]);
-
-            this.proxies = [...httpProxies, ...socks5Proxies];
-            console.log(`[ProxyManager] Loaded ${this.proxies.length} proxies.`);
-        } catch (error) {
-            console.error("[ProxyManager] Failed to fetch proxy lists:", error);
-        }
-    }
-
-    private async fetchList(url: string, protocol: "http" | "socks5"): Promise<Proxy[]> {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Failed to fetch ${url}`);
+    if (!response.ok) {
         const text = await response.text();
-        return text.split("\n")
-            .map(line => line.trim())
-            .filter(line => line.length > 0)
-            .map(line => ({
-                url: `${protocol}://${line}`,
-                protocol,
-                lastChecked: 0,
-                working: false
-            }));
+        throw new Error(`API Error ${response.status}: ${text}`);
     }
 
-    private startBackgroundCheck() {
-        this.scheduleNextBatch();
+    return await response.json();
+}
+
+async function testProxyAgainstYouTube(proxyUrl: string): Promise<boolean> {
+    try {
+        const proxyUrlObj = new URL(proxyUrl);
+        const clientOptions: Deno.CreateHttpClientOptions = {};
+
+        if (proxyUrlObj.username && proxyUrlObj.password) {
+            clientOptions.proxy = {
+                url: `${proxyUrlObj.protocol}//${proxyUrlObj.host}`,
+                basicAuth: {
+                    username: decodeURIComponent(proxyUrlObj.username),
+                    password: decodeURIComponent(proxyUrlObj.password),
+                },
+            };
+        } else {
+            clientOptions.proxy = {
+                url: proxyUrl,
+            };
+        }
+
+        const client = Deno.createHttpClient(clientOptions);
+
+        const response = await fetch(YOUTUBE_TEST_URL, {
+            client,
+            signal: AbortSignal.timeout(15000), // 15 second timeout for test
+            headers: {
+                "User-Agent": USER_AGENT,
+            },
+        });
+
+        client.close();
+
+        // YouTube should return 200 or a redirect (3xx)
+        return response.ok || (response.status >= 300 && response.status < 400);
+    } catch (err) {
+        console.error("[ProxyManager] Proxy test failed:", err);
+        return false;
+    }
+}
+
+async function registerDevice(): Promise<string> {
+    const deviceInfo: DeviceInfo = {
+        udid: crypto.randomUUID(),
+        appVersion: APP_VERSION,
+        platform: "chrome",
+        platformVersion: USER_AGENT,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        deviceName: "Chrome 120.0.0.0",
+    };
+
+    const launchResponse = await fetchJson(
+        "/api/launch/",
+        "POST",
+        deviceInfo,
+    ) as {
+        success: boolean;
+        data?: { accessToken: string };
+    };
+
+    if (!launchResponse.success || !launchResponse.data?.accessToken) {
+        throw new Error("Failed to register device with antpeak.com");
     }
 
-    private async scheduleNextBatch() {
-        await this.checkBatch(50);
-        setTimeout(() => this.scheduleNextBatch(), 5000);
+    return launchResponse.data.accessToken;
+}
+
+async function fetchLocations(token: string): Promise<Location[]> {
+    const locationsResponse = await fetchJson(
+        "/api/location/list/",
+        "POST",
+        undefined,
+        token,
+    ) as {
+        success: boolean;
+        data?: { locations: Location[] };
+    };
+
+    if (!locationsResponse.success || !locationsResponse.data?.locations) {
+        throw new Error("Failed to fetch locations from antpeak.com");
     }
 
-    private async checkBatch(size: number) {
-        const unchecked = this.proxies
-            .filter(p => !p.working && (Date.now() - p.lastChecked > this.CHECK_INTERVAL))
-            .slice(0, size);
+    // Filter for free locations (proxyType === 0)
+    return locationsResponse.data.locations.filter((l) => l.proxyType === 0);
+}
 
-        if (unchecked.length === 0) return;
+async function fetchProxyServer(
+    token: string,
+    location: Location,
+): Promise<string | null> {
+    const serverPayload = {
+        protocol: "https",
+        region: location.region,
+        type: location.type,
+    };
 
-        console.log(`[ProxyManager] Checking ${unchecked.length} proxies...`);
+    const serverResponse = await fetchJson(
+        "/api/server/list/",
+        "POST",
+        serverPayload,
+        token,
+    ) as {
+        success: boolean;
+        data?: ProxyServer[];
+    };
 
-        await Promise.all(unchecked.map(async (proxy) => {
-            proxy.lastChecked = Date.now();
-            proxy.working = await this.testProxy(proxy);
-        }));
-
-        const workingCount = this.proxies.filter(p => p.working).length;
-        console.log(`[ProxyManager] Check complete. Working proxies: ${workingCount}`);
+    if (
+        !serverResponse.success ||
+        !Array.isArray(serverResponse.data) ||
+        serverResponse.data.length === 0
+    ) {
+        return null;
     }
 
-    private async testProxy(proxy: Proxy): Promise<boolean> {
+    const server = serverResponse.data[0];
+    const ip = server.addresses[0];
+    const port = server.port;
+    const username = server.username || "";
+    const password = server.password || "";
+
+    if (!username) {
+        return `https://${ip}:${port}`;
+    } else {
+        return `https://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${ip}:${port}`;
+    }
+}
+
+// --- Public API ---
+
+/**
+ * Initialize the proxy manager. Fetches initial token and locations.
+ * Safe to call multiple times - will only initialize once.
+ */
+export async function initProxyManager(): Promise<void> {
+    if (isInitialized) return;
+
+    if (initializationPromise) {
+        return initializationPromise;
+    }
+
+    initializationPromise = (async () => {
+        console.log("[ProxyManager] Initializing automatic proxy manager...");
+
         try {
-            const client = Deno.createHttpClient({
-                proxy: { url: proxy.url }
-            });
+            accessToken = await registerDevice();
+            console.log("[ProxyManager] ✅ Registered with antpeak.com");
 
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000);
+            freeLocations = await fetchLocations(accessToken);
+            console.log(
+                `[ProxyManager] ✅ Found ${freeLocations.length} free locations`,
+            );
 
-            const response = await fetch("https://www.youtube.com", {
-                client,
-                signal: controller.signal
-            });
+            if (freeLocations.length === 0) {
+                throw new Error("No free proxy locations available");
+            }
 
-            clearTimeout(timeoutId);
-            client.close();
-            return response.status === 204;
-        } catch {
-            return false;
+            // Fetch initial proxy
+            await rotateProxy();
+
+            isInitialized = true;
+            console.log("[ProxyManager] ✅ Initialization complete");
+        } catch (err) {
+            console.error("[ProxyManager] ❌ Initialization failed:", err);
+            throw err;
+        }
+    })();
+
+    return initializationPromise;
+}
+
+/**
+ * Get the current proxy URL. Returns null if no proxy is available.
+ */
+export function getCurrentProxy(): string | null {
+    return currentProxyUrl;
+}
+
+/**
+ * Rotate to a new proxy. Tests against YouTube before accepting.
+ * Will try multiple locations until a working proxy is found.
+ */
+export async function rotateProxy(): Promise<string | null> {
+    if (!accessToken || freeLocations.length === 0) {
+        console.error(
+            "[ProxyManager] Not initialized or no locations available",
+        );
+        return null;
+    }
+
+    console.log("[ProxyManager] Rotating to new proxy...");
+
+    // Shuffle locations to get variety
+    const shuffledLocations = [...freeLocations].sort(() =>
+        Math.random() - 0.5
+    );
+
+    for (const location of shuffledLocations) {
+        try {
+            console.log(
+                `[ProxyManager] Trying location: ${location.region} (${location.countryCode})`,
+            );
+
+            const proxyUrl = await fetchProxyServer(accessToken, location);
+            if (!proxyUrl) {
+                console.log(
+                    `[ProxyManager] No server available for ${location.region}`,
+                );
+                continue;
+            }
+
+            // Test proxy against YouTube
+            console.log(`[ProxyManager] Testing proxy against YouTube...`);
+            const isWorking = await testProxyAgainstYouTube(proxyUrl);
+
+            if (isWorking) {
+                currentProxyUrl = proxyUrl;
+                // Log without credentials for security
+                const sanitizedUrl = proxyUrl.replace(
+                    /:\/\/[^@]+@/,
+                    "://***:***@",
+                );
+                console.log(
+                    `[ProxyManager] ✅ New proxy active: ${sanitizedUrl}`,
+                );
+                return currentProxyUrl;
+            } else {
+                console.log(
+                    `[ProxyManager] ❌ Proxy failed YouTube test, trying next...`,
+                );
+            }
+        } catch (err) {
+            console.error(
+                `[ProxyManager] Error with location ${location.region}:`,
+                err,
+            );
         }
     }
 
-    public async getNextWorkingProxy(): Promise<string | null> {
-        // Find a working proxy we haven't just used (simple round-robin through working ones)
-        // Or just pick the first working one that is different from current?
+    console.error("[ProxyManager] ❌ Could not find a working proxy");
+    currentProxyUrl = null;
+    return null;
+}
 
-        const workingProxies = this.proxies.filter(p => p.working);
+/**
+ * Mark the current proxy as failed and rotate to a new one.
+ * Call this when a request fails due to proxy issues.
+ */
+export async function markProxyFailed(): Promise<string | null> {
+    console.log("[ProxyManager] Current proxy marked as failed, rotating...");
+    return await rotateProxy();
+}
 
-        if (workingProxies.length === 0) {
-            console.warn("[ProxyManager] No working proxies found. Waiting for checks...");
-            // Try to force a check immediately 
-            await this.checkBatch(20);
-            const retryWorking = this.proxies.filter(p => p.working);
-            if (retryWorking.length === 0) return null;
-            return retryWorking[0].url;
-        }
+/**
+ * Check if the proxy manager is initialized and has a working proxy.
+ */
+export function isProxyManagerReady(): boolean {
+    return isInitialized && currentProxyUrl !== null;
+}
 
-        // Simple randomization to distribute load if we have multiple
-        const randomProxy = workingProxies[Math.floor(Math.random() * workingProxies.length)];
-        return randomProxy.url;
-    }
-    public reportBadProxy(url: string) {
-        const proxy = this.proxies.find(p => p.url === url);
-        if (proxy) {
-            console.warn(`[ProxyManager] Marking proxy as bad: ${url}`);
-            proxy.working = false;
-            proxy.lastChecked = Date.now(); // Reset check time so it gets re-checked eventually
-        }
+/**
+ * Re-register with the API (in case token expires).
+ */
+export async function refreshRegistration(): Promise<void> {
+    console.log("[ProxyManager] Refreshing registration...");
+    try {
+        accessToken = await registerDevice();
+        freeLocations = await fetchLocations(accessToken);
+        console.log("[ProxyManager] ✅ Registration refreshed");
+    } catch (err) {
+        console.error("[ProxyManager] ❌ Failed to refresh registration:", err);
+        throw err;
     }
 }

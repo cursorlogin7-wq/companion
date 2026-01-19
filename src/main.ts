@@ -13,6 +13,22 @@ const config = await parseConfig();
 import { Metrics } from "./lib/helpers/metrics.ts";
 import { PLAYER_ID } from "./constants.ts";
 import { jsInterpreter } from "./lib/helpers/jsInterpreter.ts";
+import {
+    initProxyManager,
+    markProxyFailed,
+    isProxyManagerReady,
+} from "./lib/helpers/proxyManager.ts";
+
+// Initialize auto proxy manager if enabled
+if (config.networking.auto_proxy) {
+    console.log("[INFO] Auto proxy is enabled, initializing proxy manager...");
+    try {
+        await initProxyManager();
+    } catch (err) {
+        console.error("[ERROR] Failed to initialize proxy manager:", err);
+        console.log("[WARN] Continuing without auto proxy...");
+    }
+}
 
 const args = parseArgs(Deno.args);
 

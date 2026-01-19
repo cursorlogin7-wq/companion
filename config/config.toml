@@ -31,7 +31,9 @@ enabled = false # env variable: CACHE_ENABLED
  
 [networking]
 ## Proxy type supported: https://docs.deno.com/api/deno/~/Deno.Proxy
-proxy = "https://f9eb8b2be8ab9fdf475715350321208c:qv1hOJ8wDy1ni2nC@hollander-4-nl.maxxxcdn.com:19877" # env variable: PROXY
+#proxy = "https://bb6fab936441d64bc37a2a75adf9320f:4gy9YwrJDWeaJ42N@trout-west-1-us.maxxxcdn.com:10799" # env variable: PROXY
+# Enable automatic proxy fetching from antpeak.com (auto-rotates when failed)
+auto_proxy = true # env variable: NETWORKING_AUTO_PROXY
 # # IPv6 rotation settings - allows sending requests with unique IPv6 addresses
 # # This requires IPv6 setup: https://github.com/iv-org/invidious-companion/wiki/How-to-send-IPv6-requests-with-a-new-IPv6-address-for-each-request-on-a-server-with-a-whole-IPv6-range
 # # Randomizes all bits after the block prefix (e.g., /32 randomizes bits 33-128)
