@@ -13,7 +13,6 @@ const config = await parseConfig();
 import { Metrics } from "./lib/helpers/metrics.ts";
 import { PLAYER_ID } from "./constants.ts";
 import { jsInterpreter } from "./lib/helpers/jsInterpreter.ts";
-import { ProxyManager } from "./lib/helpers/proxyManager.ts";
 
 const args = parseArgs(Deno.args);
 
@@ -74,8 +73,6 @@ if (!innertubeClientOauthEnabled) {
 
 Platform.shim.eval = jsInterpreter;
 
-await ProxyManager.getInstance().init();
-
 innertubeClient = await Innertube.create({
     enable_session_cache: false,
     retrieve_player: innertubeClientFetchPlayer,
@@ -113,19 +110,17 @@ if (!innertubeClientOauthEnabled) {
     tokenMinterReadyResolve?.();
 }
 
-const regenerateSession = async (): Promise<boolean> => {
+const regenerateSession = async () => {
     if (innertubeClientJobPoTokenEnabled) {
         try {
             ({ innertubeClient, tokenMinter } = await poTokenGenerate(
                 config,
                 metrics,
             ));
-            return true;
         } catch (err) {
             metrics?.potokenGenerationFailure.inc();
             // Don't rethrow for cron/manual trigger to avoid crashing the server loop
             console.error("[ERROR] Failed to regenerate session:", err);
-            return false;
         }
     } else {
         innertubeClient = await Innertube.create({
@@ -136,7 +131,6 @@ const regenerateSession = async (): Promise<boolean> => {
             cookie: innertubeClientCookies || undefined,
             player_id: PLAYER_ID,
         });
-        return true;
     }
 };
 
@@ -145,9 +139,7 @@ if (!innertubeClientOauthEnabled) {
         "regenerate youtube session",
         config.jobs.youtube_session.frequency,
         { backoffSchedule: [5_000, 15_000, 60_000, 180_000] },
-        async () => {
-            await regenerateSession();
-        },
+        regenerateSession,
     );
 }
 
