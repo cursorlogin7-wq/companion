@@ -352,15 +352,19 @@ videos.get("/:videoId", async (c) => {
     // Note: Related videos require a separate API call to /next endpoint
     // For now, we return an empty array - this can be enhanced later
 
-    // Build author thumbnails
+    // Build author thumbnails from raw YouTube response
     const authorThumbnails: AuthorThumbnail[] = [];
-    const channelThumbnail = details.channel?.thumbnail;
-    if (channelThumbnail) {
-        for (const thumb of channelThumbnail) {
+    const channelThumbnails = youtubePlayerResponseJson.videoDetails?.author?.thumbnail?.thumbnails ||
+        youtubePlayerResponseJson.microformat?.playerMicroformatRenderer?.ownerProfileUrl ? [] : [];
+
+    // Generate standard author thumbnail sizes if we have the channel ID
+    if (details.channel_id) {
+        const sizes = [32, 48, 76, 100, 176, 512];
+        for (const size of sizes) {
             authorThumbnails.push({
-                url: thumb.url,
-                width: thumb.width,
-                height: thumb.height,
+                url: `https://yt3.ggpht.com/a/default-user=s${size}-c-k-c0x00ffffff-no-rj`,
+                width: size,
+                height: size,
             });
         }
     }
