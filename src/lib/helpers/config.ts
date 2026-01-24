@@ -65,6 +65,9 @@ export const ConfigSchema = z.object({
         auto_proxy: z.boolean().default(
             Deno.env.get("NETWORKING_AUTO_PROXY") === "true" || false,
         ),
+        vpn_source: z.number().default(
+            Number(Deno.env.get("NETWORKING_VPN_SOURCE")) || 1,
+        ),
         ipv6_block: z.string().nullable().default(
             Deno.env.get("NETWORKING_IPV6_BLOCK") || null,
         ),

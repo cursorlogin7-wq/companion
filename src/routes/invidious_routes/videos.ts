@@ -5,6 +5,7 @@ import {
     youtubeVideoInfo,
 } from "../../lib/helpers/youtubePlayerHandling.ts";
 import { validateVideoId } from "../../lib/helpers/validateVideoId.ts";
+import { encryptQuery } from "../../lib/helpers/encryptQuery.ts";
 import { TOKEN_MINTER_NOT_READY_MESSAGE } from "../../constants.ts";
 
 const videos = new Hono();
@@ -254,8 +255,39 @@ function getRelativeTimeString(date: Date): string {
     return "just now";
 }
 
+// Localize URL to route through local server
+function localizeUrl(url: string, config: any): string {
+    if (!url) return url;
+    try {
+        const urlParsed = new URL(url);
+        let queryParams = new URLSearchParams(urlParsed.search);
+        queryParams.set("host", urlParsed.host);
+
+        if (config.server.encrypt_query_params) {
+            const publicParams = [...queryParams].filter(([key]) =>
+                ["pot", "ip"].includes(key) === false
+            );
+            const privateParams = [...queryParams].filter(([key]) =>
+                ["pot", "ip"].includes(key) === true
+            );
+            const encryptedParams = encryptQuery(
+                JSON.stringify(privateParams),
+                config,
+            );
+            queryParams = new URLSearchParams(publicParams);
+            queryParams.set("enc", "true");
+            queryParams.set("data", encryptedParams);
+        }
+
+        return config.server.base_path + urlParsed.pathname + "?" + queryParams.toString();
+    } catch {
+        return url;
+    }
+}
+
 videos.get("/:videoId", async (c) => {
     const videoId = c.req.param("videoId");
+    const { local } = c.req.query();
     c.header("access-control-allow-origin", "*");
     c.header("content-type", "application/json");
 
@@ -323,7 +355,11 @@ videos.get("/:videoId", async (c) => {
     const adaptiveFormats: AdaptiveFormat[] = [];
     if (streamingData?.adaptive_formats) {
         for (const format of streamingData.adaptive_formats) {
-            adaptiveFormats.push(convertAdaptiveFormat(format));
+            const converted = convertAdaptiveFormat(format);
+            if (local) {
+                converted.url = localizeUrl(converted.url, config);
+            }
+            adaptiveFormats.push(converted);
         }
     }
 
@@ -331,7 +367,11 @@ videos.get("/:videoId", async (c) => {
     const formatStreams: FormatStream[] = [];
     if (streamingData?.formats) {
         for (const format of streamingData.formats) {
-            formatStreams.push(convertFormatStream(format));
+            const converted = convertFormatStream(format);
+            if (local) {
+                converted.url = localizeUrl(converted.url, config);
+            }
+            formatStreams.push(converted);
         }
     }
 

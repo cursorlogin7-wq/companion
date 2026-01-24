@@ -23,7 +23,7 @@ import {
 if (config.networking.auto_proxy) {
     console.log("[INFO] Auto proxy is enabled, initializing proxy manager...");
     try {
-        await initProxyManager();
+        await initProxyManager(config.networking.vpn_source);
     } catch (err) {
         console.error("[ERROR] Failed to initialize proxy manager:", err);
         console.log("[WARN] Continuing without auto proxy...");

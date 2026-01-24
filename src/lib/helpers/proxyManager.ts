@@ -4,6 +4,8 @@
  * Tests proxies against YouTube to ensure they work for the application's needs.
  */
 
+import { fetchUrbanProxy } from "./urbanProxy.ts";
+
 // --- Configuration ---
 const API_BASE = "https://antpeak.com";
 const USER_AGENT =
@@ -44,6 +46,7 @@ let accessToken: string | null = null;
 let freeLocations: Location[] = [];
 let isInitialized = false;
 let initializationPromise: Promise<void> | null = null;
+let vpnSource = 1;
 
 // --- Helpers ---
 
@@ -209,7 +212,8 @@ async function fetchProxyServer(
  * Initialize the proxy manager. Fetches initial token and locations.
  * Safe to call multiple times - will only initialize once.
  */
-export async function initProxyManager(): Promise<void> {
+export async function initProxyManager(source: number = 1): Promise<void> {
+    vpnSource = source;
     if (isInitialized) return;
 
     if (initializationPromise) {
@@ -220,16 +224,20 @@ export async function initProxyManager(): Promise<void> {
         console.log("[ProxyManager] Initializing automatic proxy manager...");
 
         try {
-            accessToken = await registerDevice();
-            console.log("[ProxyManager] ✅ Registered with antpeak.com");
+            if (vpnSource === 1) {
+                accessToken = await registerDevice();
+                console.log("[ProxyManager] ✅ Registered with antpeak.com");
 
-            freeLocations = await fetchLocations(accessToken);
-            console.log(
-                `[ProxyManager] ✅ Found ${freeLocations.length} free locations`,
-            );
+                freeLocations = await fetchLocations(accessToken);
+                console.log(
+                    `[ProxyManager] ✅ Found ${freeLocations.length} free locations`,
+                );
 
-            if (freeLocations.length === 0) {
-                throw new Error("No free proxy locations available");
+                if (freeLocations.length === 0) {
+                    throw new Error("No free proxy locations available");
+                }
+            } else if (vpnSource === 2) {
+                console.log("[ProxyManager] Using Urban VPN source");
             }
 
             // Fetch initial proxy
@@ -258,6 +266,31 @@ export function getCurrentProxy(): string | null {
  * Will try multiple locations until a working proxy is found.
  */
 export async function rotateProxy(): Promise<string | null> {
+    console.log(`[ProxyManager] Rotation requested. Source: ${vpnSource}`);
+
+    if (vpnSource === 2) {
+        // Urban VPN Logic
+        try {
+            const urbanResult = await fetchUrbanProxy();
+            if (urbanResult) {
+                console.log(`[ProxyManager] Testing Urban proxy against YouTube...`);
+                const isWorking = await testProxyAgainstYouTube(urbanResult.url);
+                if (isWorking) {
+                    currentProxyUrl = urbanResult.url;
+                    console.log(`[ProxyManager] ✅ New Urban proxy active: ${urbanResult.host}`);
+                    return currentProxyUrl;
+                } else {
+                    console.log(`[ProxyManager] ❌ Urban proxy failed YouTube test`);
+                }
+            }
+        } catch (err) {
+            console.error("[ProxyManager] Failed to fetch/test Urban proxy", err);
+        }
+        console.error("[ProxyManager] ❌ Could not find a working Urban proxy");
+        currentProxyUrl = null;
+        return null;
+    }
+
     if (!accessToken || freeLocations.length === 0) {
         console.error(
             "[ProxyManager] Not initialized or no locations available",
@@ -265,7 +298,15 @@ export async function rotateProxy(): Promise<string | null> {
         return null;
     }
 
-    console.log("[ProxyManager] Rotating to new proxy...");
+    // Default AntPeak Logic (vpnSource === 1)
+    if (!accessToken || freeLocations.length === 0) {
+        console.error(
+            "[ProxyManager] Not initialized or no locations available",
+        );
+        return null;
+    }
+
+    console.log("[ProxyManager] Rotating to new proxy (AntPeak)...");
 
     // Shuffle locations to get variety
     const shuffledLocations = [...freeLocations].sort(() =>
