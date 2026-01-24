@@ -32,7 +32,7 @@ videoPlaybackProxy.options("/", () => {
 });
 
 videoPlaybackProxy.get("/", async (c) => {
-    const { host, c: client, expire, title } = c.req.query();
+    const { c: client, expire, title } = c.req.query();
     const urlReq = new URL(c.req.url);
     const config = c.get("config");
     const queryParams = new URLSearchParams(urlReq.search);
@@ -49,11 +49,7 @@ videoPlaybackProxy.get("/", async (c) => {
         queryParams.set("ip", parsedDecryptedQueryParams.get("ip") as string);
     }
 
-    if (host == undefined || !/[\w-]+.googlevideo.com/.test(host)) {
-        throw new HTTPException(400, {
-            res: new Response("Host query string do not match or undefined."),
-        });
-    }
+
 
     if (
         expire == undefined ||
@@ -72,7 +68,7 @@ videoPlaybackProxy.get("/", async (c) => {
         });
     }
 
-    queryParams.delete("host");
+
     queryParams.delete("title");
 
     const rangeHeader = c.req.header("range");
@@ -107,7 +103,7 @@ videoPlaybackProxy.get("/", async (c) => {
     const fetchClient = await getFetchClient(config);
 
     let headResponse: Response | undefined;
-    let location = `https://${host}/videoplayback?${queryParams.toString()}`;
+    let location = `https://redirector.googlevideo.com/videoplayback?${queryParams.toString()}`;
 
     // https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-p2-semantics-17#section-7.3
     // A maximum of 5 redirections is defined in the note of the section 7.3
@@ -203,9 +199,8 @@ videoPlaybackProxy.get("/", async (c) => {
     };
 
     if (title) {
-        headersForResponse["content-disposition"] = `attachment; filename="${
-            encodeURIComponent(title)
-        }"; filename*=UTF-8''${encodeRFC5987ValueChars(title)}`;
+        headersForResponse["content-disposition"] = `attachment; filename="${encodeURIComponent(title)
+            }"; filename*=UTF-8''${encodeRFC5987ValueChars(title)}`;
     }
 
     let responseStatus = headResponse.status;
@@ -216,9 +211,8 @@ videoPlaybackProxy.get("/", async (c) => {
         // "bytes=500-1000" get 500 bytes starting from 500
         if (lastByte) {
             responseStatus = 206;
-            headersForResponse["content-range"] = `bytes ${requestBytes}/${
-                queryParams.get("clen") || "*"
-            }`;
+            headersForResponse["content-range"] = `bytes ${requestBytes}/${queryParams.get("clen") || "*"
+                }`;
         } else {
             // i.e. "bytes=0-", "bytes=600-"
             // full size of content is able to be calculated, so a full Content-Range header can be constructed
