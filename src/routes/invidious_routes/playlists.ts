@@ -85,7 +85,6 @@ playlists.get("/:playlistId", async (c) => {
     try {
         const playlist = await innertubeClient.getPlaylist(playlistId);
         const info = playlist.info as any;
-        const header = playlist.header as any;
 
         // Extract author info
         let author = "";
@@ -96,13 +95,6 @@ playlists.get("/:playlistId", async (c) => {
         if (info?.author) {
             author = info.author.name || "";
             authorId = info.author.id || "";
-            authorUrl = authorId ? `/channel/${authorId}` : "";
-        }
-
-        // Try to get author from header if not in info
-        if (!author && header?.author?.name) {
-            author = header.author.name;
-            authorId = header.author.id || "";
             authorUrl = authorId ? `/channel/${authorId}` : "";
         }
 
